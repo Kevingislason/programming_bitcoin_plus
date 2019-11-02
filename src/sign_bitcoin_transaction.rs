@@ -28,7 +28,7 @@ pub fn sign_bitcoin_transaction() {
       )
       .unwrap(),
       script_sig: Script::new(),
-      sequence: 4294967295, // i.e. ffffff in hexadecimal
+      sequence: 0xffffff,
       witness: vec![],
     }],
     output: vec![TxOut {
@@ -51,7 +51,6 @@ pub fn sign_bitcoin_transaction() {
     .into_script();
 
   raw_tx.input[0].script_sig = script_sig;
-
   println!("serialized transaction: {:?}", raw_tx.serialize());
   println!(
     "hexadecimal transaction: {:?}",
