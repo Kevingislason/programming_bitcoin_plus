@@ -1,6 +1,5 @@
-//Adapted from Jimmy Song's Bitcoin library:
-//https://github.com/jimmysong/programmingbitcoin/blob/master/code-ch04/ecc.py
-
+//Adapted from Jimmy Song's Programming Bitcoin library:
+//https://github.com/jimmysong/programmingbitcoin/
 use crate::ecc::PrivateKey;
 use crate::ecc_helpers::{hash_256, SIGHASH_ALL};
 use crate::script::{Script, ScriptElement};
@@ -212,10 +211,6 @@ impl TxIn {
   }
 }
 
-// prev_tx_id: U256, //u256
-// prev_index: u32,
-// script_sig: Script,
-// sequence: u32,
 
 impl fmt::Display for TxIn {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -320,6 +315,8 @@ pub fn test_parse_locktime() {
   let tx = Tx::parse(serialized_tx, false);
   assert_eq!(tx.locktime, 410393);
 }
+
+//todo: implement fees
 
 // #[test]
 // pub fn test_fee() {

@@ -64,7 +64,7 @@ pub fn encode_base58_checksum(bytes: Vec<u8>) -> String {
 }
 
 //todo: refactor, I think this code is bad
-//todo: write tests for this, I'm almost sure it will not work, but I don't need it yet
+//todo: write tests for this
 pub fn decode_base58(s: String) -> Vec<u8> {
   let base58_alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   let mut num = BigInt::zero();

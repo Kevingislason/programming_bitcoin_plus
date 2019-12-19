@@ -1,5 +1,5 @@
 //Adapted from Jimmy Song's Programming Bitcoin library
-//https://github.com/jimmysong/programmingbitcoin/blob/master/code-ch04/ecc.py
+//https://github.com/jimmysong/programmingbitcoin/
 
 //Boring imports
 use core::convert::TryInto;
