@@ -1,10 +1,16 @@
+//Adapted from Jimmy Song's Programming Bitcoin library
+//https://github.com/jimmysong/programmingbitcoin/blob/master/code-ch04/ecc.py
 use num::bigint::BigInt;
 use num::bigint::Sign::Plus;
-use num_traits::identities::{One, Zero};
 use num::ToPrimitive;
+use num_traits::identities::{One, Zero};
 
-use sha2::{Digest, Sha256};
 use ripemd160::Ripemd160;
+use sha2::{Digest, Sha256};
+
+pub const SIGHASH_ALL: u8 = 1;
+pub const SIGHASH_NONE: u8 = 2;
+pub const SIGHASH_SINGLE: u8 = 3;
 
 pub fn hash_160(bytes: Vec<u8>) -> Vec<u8> {
   //Hash our bytes with sha256, then ripemd160
@@ -57,13 +63,7 @@ pub fn encode_base58_checksum(bytes: Vec<u8>) -> String {
   encode_base58(unencoded)
 }
 
-#[test]
-pub fn test_enocde_base58() {
-  println!("{}", 100u8 / 58u8);
-  let bytes: Vec<u8> = vec![1, 2, 200, 255, 122];
-  assert_eq!(encode_base58(bytes), "7cfKTo")
-}
-
+//todo: refactor, I think this code is bad
 //todo: write tests for this, I'm almost sure it will not work, but I don't need it yet
 pub fn decode_base58(s: String) -> Vec<u8> {
   let base58_alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -88,4 +88,19 @@ pub fn decode_base58(s: String) -> Vec<u8> {
     panic!("bad address: {:?} {:?}", checksum, hash[0..4].to_vec());
   }
   return combined[1..21].to_vec();
+}
+
+#[test]
+pub fn test_enocde_base58() {
+  println!("{}", 100u8 / 58u8);
+  let bytes: Vec<u8> = vec![1, 2, 200, 255, 122];
+  assert_eq!(encode_base58(bytes), "7cfKTo")
+}
+
+#[test]
+pub fn test_decode_base58() {
+  let address = String::from("mnrVtF8DWjMu839VW3rBfgYaAfKk8983Xf");
+  let h160 = hex::encode(decode_base58(address));
+  let want = "507b27411ccf7f16f10297de6cef3f291623eddf";
+  assert_eq!(h160, want);
 }

@@ -1,10 +1,10 @@
-//All code and most tests are  adapted from Jimmy Song's Bitcoin library:
+//Adapted from Jimmy Song's Programming Bitcoin library
 //https://github.com/jimmysong/programmingbitcoin/blob/master/code-ch04/ecc.py
 
 //Boring imports
-use std::convert::TryInto;
-use std::fmt;
-use std::ops;
+use core::convert::TryInto;
+use core::fmt;
+use core::ops;
 extern crate num;
 use num::bigint::BigInt;
 use num::bigint::Sign::Plus;
