@@ -1,9 +1,12 @@
 //Adapted from Jimmy Song's Programming Bitcoin library:
 //https://github.com/jimmysong/programmingbitcoin/
 use crate::ecc::PrivateKey;
-use crate::ecc_helpers::{hash_256, SIGHASH_ALL};
 use crate::script::{Script, ScriptElement};
-use crate::tx_helpers::{encode_varint, read_varint};
+use crate::helpers::{encode_varint, read_varint, hash_256, SIGHASH_ALL};
+use crate::cursor::Cursor;
+use crate::genio::{Read, Write};
+use crate::serialization::Serialization;
+
 use bigint::uint::U256;
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use core::convert::TryFrom;
@@ -12,7 +15,8 @@ use hex::decode;
 use num::bigint::BigInt;
 use num::bigint::Sign::Plus;
 use num::Zero;
-use std::io::{Cursor, Read, SeekFrom, Write};
+
+
 
 //A Bitcoin transction
 #[derive(PartialEq, Debug, Clone)]
@@ -44,7 +48,7 @@ impl Tx {
   //todo: how can I tell if this is a testnet tx
   pub fn parse(serialization: Vec<u8>, testnet: bool) -> Tx {
     let mut cursor = Cursor::new(serialization);
-    let version = cursor.read_u32::<LittleEndian>().unwrap();
+    let version = cursor.read_u32_little_endian().unwrap();
 
     let total_tx_ins = read_varint(&mut cursor);
     let mut tx_ins = vec![];
@@ -57,7 +61,7 @@ impl Tx {
     for _ in 0..total_tx_outs {
       tx_outs.push(TxOut::parse(&mut cursor));
     }
-    let locktime = cursor.read_u32::<LittleEndian>().unwrap();
+    let locktime = cursor.read_u32_little_endian().unwrap();
 
     return Tx {
       version,
@@ -69,9 +73,9 @@ impl Tx {
   }
 
   pub fn serialize(&self) -> Vec<u8> {
-    let mut serialization = vec![];
+    let mut serialization = Serialization::new();
     serialization
-      .write_u32::<LittleEndian>(self.version)
+      .write_u32_little_endian(self.version)
       .unwrap();
     serialization
       .write(&encode_varint(self.tx_ins.len() as u64))
@@ -86,16 +90,16 @@ impl Tx {
       serialization.write(&tx_out.serialize()).unwrap();
     }
     serialization
-      .write_u32::<LittleEndian>(self.locktime)
+      .write_u32_little_endian(self.locktime)
       .unwrap();
 
-    serialization
+    serialization.contents
   }
 
   fn sig_hash(&self, input_index: usize, redeem_script: Script) -> BigInt {
-    let mut serialization = vec![];
+    let mut serialization = Serialization::new();
     serialization
-      .write_u32::<LittleEndian>(self.version)
+      .write_u32_little_endian(self.version)
       .unwrap();
     serialization
       .write(&encode_varint(self.tx_ins.len() as u64))
@@ -123,14 +127,14 @@ impl Tx {
       serialization.write(&tx_out.serialize()).unwrap();
     }
     serialization
-      .write_u32::<LittleEndian>(self.locktime)
+      .write_u32_little_endian(self.locktime)
       .unwrap();
 
     serialization
-      .write_u32::<LittleEndian>(SIGHASH_ALL as u32)
+      .write_u32_little_endian(SIGHASH_ALL as u32)
       .unwrap();
 
-    let hash = hash_256(serialization);
+    let hash = hash_256(serialization.contents);
     BigInt::from_bytes_be(Plus, &hash)
   }
 
@@ -181,12 +185,12 @@ impl TxIn {
 
   pub fn parse(cursor: &mut Cursor<Vec<u8>>) -> TxIn {
     let mut buffer = [0u8; 32];
-    cursor.read(&mut buffer).unwrap();
+    cursor.read_exact(&mut buffer).unwrap();
     let prev_tx_id = U256::from_little_endian(&buffer);
     println!("Prev tx id: {}", prev_tx_id);
-    let prev_index = cursor.read_u32::<LittleEndian>().unwrap();
+    let prev_index = cursor.read_u32_little_endian().unwrap();
     let script_sig = Script::parse(cursor);
-    let sequence = cursor.read_u32::<LittleEndian>().unwrap();
+    let sequence = cursor.read_u32_little_endian().unwrap();
 
     TxIn {
       prev_tx_id,
@@ -197,17 +201,21 @@ impl TxIn {
   }
 
   pub fn serialize(&self) -> Vec<u8> {
-    let mut serialization = vec![0; 32];
-    self.prev_tx_id.to_little_endian(&mut serialization);
+    let mut serialization = Serialization::new();
+    //serialize prev tx id
+    let mut buf = vec![0; 32];
+    self.prev_tx_id.to_little_endian(&mut buf);
+    serialization.write(&buf).unwrap();
+    //serialize prev index
     serialization
-      .write_u32::<LittleEndian>(self.prev_index)
+      .write_u32_little_endian(self.prev_index)
       .unwrap();
+    //serialize script sig
     serialization.write(&self.script_sig.serialize()).unwrap();
     serialization
-      .write_u32::<LittleEndian>(self.sequence)
+      .write_u32_little_endian(self.sequence)
       .unwrap();
-
-    serialization
+    serialization.contents
   }
 }
 
@@ -237,7 +245,7 @@ impl TxOut {
   }
 
   pub fn parse(cursor: &mut Cursor<Vec<u8>>) -> TxOut {
-    let amount = cursor.read_u64::<LittleEndian>().unwrap(); //problem here
+    let amount = cursor.read_u64_little_endian().unwrap();
     let script_pubkey = Script::parse(cursor);
     TxOut {
       amount,
@@ -246,14 +254,14 @@ impl TxOut {
   }
 
   pub fn serialize(&self) -> Vec<u8> {
-    let mut serialization = vec![];
+    let mut serialization = Serialization::new();
     serialization
-      .write_u64::<LittleEndian>(self.amount)
+      .write_u64_little_endian(self.amount)
       .unwrap();
     serialization
       .write(&self.script_pubkey.serialize())
       .unwrap();
-    serialization
+    serialization.contents
   }
 }
 

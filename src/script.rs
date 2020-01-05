@@ -1,11 +1,11 @@
 //Adapted from Jimmy Song's Bitcoin library:
 //https://github.com/jimmysong/programmingbitcoin/blob/master/code-ch04/ecc.py
 extern crate hex;
-use crate::tx_helpers::{encode_varint, read_varint};
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
+use crate::helpers::{encode_varint, read_varint};
+use crate::cursor::Cursor;
 use core::fmt;
-use std::io::{Cursor, Read, SeekFrom, Write};
-use std::convert::TryFrom;
+use genio::Read;
+use core::convert::TryFrom;
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Script {
@@ -40,7 +40,7 @@ impl Script {
     let mut bytes_parsed = 0;
     while bytes_parsed < length {
       let mut buffer = [0u8; 1];
-      cursor.read(&mut buffer).unwrap();
+      cursor.read_exact(&mut buffer).unwrap();
       bytes_parsed += 1;
       let current_byte = buffer[0];
 
@@ -49,10 +49,10 @@ impl Script {
         //We read n bytes, where n=current_byte
         let data_length = current_byte;
         //Read that many bytes as a single element, and add it to our list of commands
-        let mut buffer = Vec::with_capacity(data_length as usize);
+        let mut buffer = vec![0u8; data_length as usize];
+
         cursor
-          .take(data_length as u64)
-          .read_to_end(&mut buffer)
+          .read_exact(&mut buffer)
           .unwrap();
         elements.push(ScriptElement::Data(buffer));
         bytes_parsed += data_length as u64;
@@ -61,13 +61,12 @@ impl Script {
       else if current_byte == Opcode::OpPushData1.value() {
         //Find out exactly how many bytes to read
         let mut buffer = [0u8; 1];
-        cursor.read(&mut buffer).unwrap();
+        cursor.read_exact(&mut buffer).unwrap();
         let data_length = buffer[0];
         //Read that many bytes as a single element, and add it to our list of commands
-        let mut buffer = Vec::with_capacity(data_length as usize);
+        let mut buffer = vec![0u8; data_length as usize];
         cursor
-          .take(data_length as u64)
-          .read_to_end(&mut buffer)
+          .read_exact(&mut buffer)
           .unwrap();
         elements.push(ScriptElement::Data(buffer));
         bytes_parsed += 1 + data_length as u64;
@@ -75,15 +74,14 @@ impl Script {
       //Case 3: We are going to parse an element of 256-520 bytes
       else if current_byte == Opcode::OpPushData2.value() {
         //Find out exactly how many bytes to read
-        let data_length = cursor.read_u16::<LittleEndian>().unwrap();
+        let data_length = cursor.read_u16_little_endian().unwrap();
         if data_length > Script::MAX_SCRIPT_ELEMENT_LENGTH {
           panic!("Parse script failed; script elements can be no longer than 520 bytes");
         }
         //Read that many bytes as a single element, and add it to our list of elements
-        let mut buffer = Vec::with_capacity(data_length as usize);
+        let mut buffer = vec![0u8; data_length as usize];
         cursor
-          .take(data_length as u64)
-          .read_to_end(&mut buffer)
+          .read_exact(&mut buffer)
           .unwrap();
         elements.push(ScriptElement::Data(buffer));
         bytes_parsed += 2 + data_length as u64;
@@ -152,7 +150,7 @@ impl ScriptElement {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-enum Opcode {
+pub enum Opcode {
   Op0,
   OpPushData1,
   OpPushData2,
@@ -446,7 +444,7 @@ impl TryFrom<u8> for Opcode {
   }
 }
 
-//todo: test this more exhaustively tbh
+//todo: test more exhaustively
 #[test]
 fn test_parse_script() {
   let serialized_script = hex::decode("6a47304402207899531a52d59a6de200179928ca900254a36b8dff8bb75f5f5d71b1cdc26125022008b422690b8461cb52c3cc30330b23d574351872b7c361e9aae3649071c1a7160121035d5c93d9ac96881f19ba1f686f15f009ded7c62efe85a872e6a19b43c15a2937").unwrap();
@@ -467,6 +465,4 @@ fn test_serialize_script() {
   let script = Script::parse(&mut Cursor::new(serialized_script.clone()));
   let my_serialized_script = script.serialize();
   assert_eq!(my_serialized_script, serialized_script);
-
-  println!("{}", script);
 }

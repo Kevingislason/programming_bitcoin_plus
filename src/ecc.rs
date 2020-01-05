@@ -1,26 +1,22 @@
 //Adapted from Jimmy Song's Programming Bitcoin library
 //https://github.com/jimmysong/programmingbitcoin/
 
-//Boring imports
-use core::convert::TryInto;
-use core::fmt;
-use core::ops;
+extern crate hex;
 extern crate num;
+
 use num::bigint::BigInt;
 use num::bigint::Sign::Plus;
 use num::pow::pow;
 use num_traits::identities::{One, Zero};
-extern crate hex;
-
-//Hash stuff
+use core::convert::TryInto;
+use core::fmt;
+use core::ops;
 use sha2::{Digest, Sha256};
-
+use crate::helpers::{encode_base58_checksum, hash_160};
 //Used for generating a pseudo-random K to sign transactions
 use hmac::{Hmac, Mac};
 type HmacSha256 = Hmac<Sha256>;
 
-//Some convenience functions
-use crate::ecc_helpers::{encode_base58_checksum, hash_160};
 
 //This "lazy static" macro lets us use structs sort of like constants
 use lazy_static;
@@ -43,7 +39,6 @@ lazy_static! {
   static ref N: BigInt = BigInt::parse_bytes(
     b"fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
     .unwrap();
-
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -506,7 +501,7 @@ fn construct_short_hmac_message(components: Vec<&[u8]>) -> [u8; 33] {
 //Rust represents it as [1u8]
 //But to calculate deterministic_k, we need 32 bytes total
 //e.g. [0, 0, 0, 0, 0, ... 1]
-fn fill_to_32_bytes(mut vector: Vec<u8>) -> [u8; 32] {
+fn fill_to_32_bytes(vector: Vec<u8>) -> [u8; 32] {
   let mut result: [u8; 32] = [0; 32];
   let offset = 32 - vector.len();
   for i in 0..vector.len() {
@@ -668,8 +663,8 @@ fn test_verify_signature() {
 
 #[test]
 fn test_sign() {
-  let private_key = PrivateKey::new(BigInt::from(1234567890)); //chosen arbitrarily
-  let z = BigInt::from(987654321); //chosen arbitrarily
+  let private_key = PrivateKey::new(BigInt::from(1234567890));
+  let z = BigInt::from(987654321);
   let signature = private_key.sign(&z);
   assert!(private_key.point.verify_signatture(&z, &signature));
 }
@@ -695,25 +690,25 @@ fn test_serialize_sec() {
   let compressed = "03aee2e7d843f7430097859e2bc603abcc3274ff8169c1a469fee0f20614066f8e";
   let point = G.clone() * coefficient;
   assert_eq!(hex::decode(uncompressed).unwrap(), point.sec(false));
-  assert_eq!(hex::decode(compressed).unwrap(), point.sec(true)); //hmm...
+  assert_eq!(hex::decode(compressed).unwrap(), point.sec(true));
 }
 
 #[test]
 fn test_serialize_der() {
-  let private_key = PrivateKey::new(BigInt::from(1234567890)); //chosen arbitrarily
-  let z = BigInt::from(987654321); //chosen arbitrarily
+  let private_key = PrivateKey::new(BigInt::from(1234567890));
+  let z = BigInt::from(987654321);
   let signature = private_key.sign(&z);
   let expected_result = "3045022100b5fb2e0b3a79dacbb56b08d7b13c9417c635dd6083201b19f6caba2694583741022043e6313219e0154f23373681d9c39239669163f0bbab5ca7198a9bbc9e33ade2";
   assert_eq!(expected_result, hex::encode(signature.der()));
 
-  let private_key = PrivateKey::new(BigInt::from(99999)); //chosen arbitrarily
-  let z = BigInt::from(77777); //chosen arbitrarily
+  let private_key = PrivateKey::new(BigInt::from(99999));
+  let z = BigInt::from(77777);
   let signature = private_key.sign(&z);
   let expected_result = "304402201c65f69096aba3df70b37b5778d7f6e6376672f859e13ddcd3ddb17f0aa8c84802202294cd6189ac8451137f811e2c0fa2a3fe6a737d472c21d94a4ea9558c9b5be7";
   assert_eq!(expected_result, hex::encode(signature.der()));
 
-  let private_key = PrivateKey::new(BigInt::from(19891)); //chosen arbitrarily
-  let z = BigInt::from(13868); //chosen arbitrarily
+  let private_key = PrivateKey::new(BigInt::from(19891));
+  let z = BigInt::from(13868);
   let signature = private_key.sign(&z);
   let expected_result = "3045022100998c323c9453c385e73c569a1770e35a4e05241acbe8123146e70c1e6896968702202c8ec157da679532be68f95453a2dac37902e6f52f7cc073c6bc19e8789d235b";
   assert_eq!(expected_result, hex::encode(signature.der()));
@@ -778,5 +773,3 @@ fn test_wif() {
 //1: replace BigInts with BigUInts?
 //2. Add tests for S256FieldElement
 //3. See if I can avoid invoking ".code" in get_hmac_result (apparently insecure?)
-
-//todo: Parse for point and sig
