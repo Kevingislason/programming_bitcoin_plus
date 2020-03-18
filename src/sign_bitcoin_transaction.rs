@@ -8,7 +8,7 @@ use bitcoin::util::address::Address;
 use bitcoin::util::key::PrivateKey;
 use bitcoin::util::psbt::serialize::Serialize;
 
-use std::str::FromStr;
+//use std::str::FromStr;
 
 pub fn sign_bitcoin_transaction() {
   let my_private_key =

@@ -6,14 +6,10 @@ use crate::helpers::{encode_varint, read_varint, hash_256, SIGHASH_ALL};
 use crate::cursor::Cursor;
 use crate::genio::{Read, Write};
 use crate::serialization::Serialization;
-
-use bigint::uint::U256;
-use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use core::convert::TryFrom;
 use core::fmt;
+use bigint::{U256, U512};
 use hex::decode;
-use num::bigint::BigInt;
-use num::bigint::Sign::Plus;
 use num::Zero;
 
 
@@ -96,7 +92,7 @@ impl Tx {
     serialization.contents
   }
 
-  fn sig_hash(&self, input_index: usize, redeem_script: Script) -> BigInt {
+  fn sig_hash(&self, input_index: usize, redeem_script: Script) -> U256 {
     let mut serialization = Serialization::new();
     serialization
       .write_u32_little_endian(self.version)
@@ -135,7 +131,7 @@ impl Tx {
       .unwrap();
 
     let hash = hash_256(serialization.contents);
-    BigInt::from_bytes_be(Plus, &hash)
+    U256::from_big_endian(&hash)
   }
 
   pub fn sign_input(&mut self, input_index: usize, private_key: PrivateKey, redeem_script: Script) {

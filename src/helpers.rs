@@ -7,6 +7,8 @@ use num::ToPrimitive;
 use num_traits::identities::{One, Zero};
 use ripemd160::Ripemd160;
 use sha2::{Digest, Sha256};
+use bigint::U256;
+use core::convert::From;
 use crate::cursor::Cursor;
 use crate::genio::Read;
 use crate::serialization::Serialization;
@@ -44,15 +46,15 @@ pub fn encode_base58(bytes: Vec<u8>) -> String {
       break;
     }
   }
-  let mut num = BigInt::from_bytes_be(Plus, &bytes);
+  let mut num = U256::from_big_endian(&bytes);
   let mut prefix = String::from("");
   for _ in 0..count {
     prefix += "1";
   }
   let mut result = String::from("");
-  while &num > &BigInt::zero() {
-    let modulo: usize = (&num % 58u8).to_usize().unwrap();
-    num = &num / 58;
+  while &num > &U256::from(0) {
+    let modulo: usize = (num.clone() % U256::from(58)).as_u32() as usize;
+    num = num.clone() / U256::from(58);
     let character = String::from(&base58_alphabet[modulo..modulo + 1]);
     result = character + &result;
   }
@@ -67,22 +69,24 @@ pub fn encode_base58_checksum(bytes: Vec<u8>) -> String {
 }
 
 //todo: refactor, I think this code is bad
-//todo: write tests for this
 pub fn decode_base58(s: String) -> Vec<u8> {
   let base58_alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  let mut num = BigInt::zero();
+  let mut num = U256::zero();
   for c in s.chars() {
-    num *= 58;
-    num = num + &base58_alphabet.find(c).unwrap();
+    num = num * U256::from(58);
+    let index: u8 = base58_alphabet.find(c).unwrap() as u8;
+    num = num + U256::from(index);
   }
-  let mut combined = num.to_bytes_be().1;
+  let mut combined = [0u8; 32];
+  num.to_big_endian(&mut combined);
+  let mut combined = &combined[7..32];
   //pad to 25 bytes
-  if combined.len() < 25 {
-    let padding_len = 25 - combined.len();
-    let mut padded_combined: Vec<u8> = vec![0; padding_len];
-    padded_combined.append(&mut combined);
-    combined = padded_combined;
-  }
+  // if combined.len() < 25 {
+  //   let padding_len = 25 - combined.len();
+  //   let mut padded_combined: Vec<u8> = vec![0; padding_len];
+  //   padded_combined.append(&mut combined);
+  //   combined = padded_combined;
+  // }
 
   let checksum = combined[21..25].to_vec();
   let first_21_chars_of_combined = combined[0..21].to_vec();
@@ -121,6 +125,25 @@ pub fn encode_varint(i: u64) -> Vec<u8> {
   }
 }
 
+pub fn U256_from_hex_str(hex_str: &str) -> U256 {
+  //As currently implemented, this function will throw a tantrum if the str isn't 64 characters -> 256 bytes
+  //This is because of the stupid way U256::from_big_endian is implemented--it requires exactly 32 u8s
+  //I can probably fix this on my own, but it doesn't really matter, since I think I only use this dumb function for tests
+  assert_eq!(hex_str.len(), 64);
+  let big_endian_bytes = hex::decode(hex_str).unwrap();
+  U256::from_big_endian(&big_endian_bytes)
+}
+
+#[test]
+pub fn test_U256_from_hex_str() {
+  let max_U256 = U256::MAX;
+  let U256_max_str = &"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+  assert_eq!(max_U256, U256_from_hex_str(U256_max_str));
+
+  let one = U256::one();
+  assert_eq!(one, U256_from_hex_str("0000000000000000000000000000000000000000000000000000000000000001"));
+}
+
 #[test]
 pub fn test_enocde_base58() {
   println!("{}", 100u8 / 58u8);
@@ -135,7 +158,6 @@ pub fn test_decode_base58() {
   let want = "507b27411ccf7f16f10297de6cef3f291623eddf";
   assert_eq!(h160, want);
 }
-
 
 #[test]
 pub fn test_varint() {
