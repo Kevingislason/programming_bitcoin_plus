@@ -1,23 +1,20 @@
-//Adapted from Jimmy Song's Programming Bitcoin library
+//More or less adapted from Jimmy Song's Programming Bitcoin library
 //https://github.com/jimmysong/programmingbitcoin/
+
+//todo:  Add tests for S256FieldElement, powmod
+//todo: implement public key type
 
 extern crate hex;
 extern crate num;
-use num::pow::pow;
-use num_traits::identities::{One, Zero};
+use crate::helpers::{encode_base58_checksum, hash_160, U256_from_hex_str};
+use bigint::{U256, U512};
 use core::convert::TryInto;
 use core::fmt;
-use core::ops;
-use bigint::{U512, U256};
-use sha2::{Digest, Sha256};
-use crate::helpers::{encode_base58_checksum, hash_160, U256_from_hex_str};
-//Used for generating a pseudo-random K to sign transactions
 use hmac::{Hmac, Mac};
+use num::pow::pow;
+use sha2::{Digest, Sha256};
 type HmacSha256 = Hmac<Sha256>;
 
-
-
-//This "lazy static" macro lets us use structs sort of like constants
 use lazy_static;
 #[macro_use]
 lazy_static! {
@@ -36,7 +33,7 @@ lazy_static! {
     &"483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
 
   //The order of the generator point
-  static ref N: U256 = U256::from_dec_str(
+  pub static ref N: U256 = U256::from_dec_str(
     &"115792089237316195423570985008687907852837564279074904382605163141518161494337")
     .unwrap();
 }
@@ -60,8 +57,6 @@ impl S256FieldElement {
     S256FieldElement::new(U256::zero())
   }
 
-  //My code here is simpler than the code in Jimmy Song's book because I'm never
-  //dealing with cases where an exponent is larger than the SECP prime, or is negative
   fn pow(&self, exponent: u8) -> S256FieldElement {
     let exponent = U256::from(exponent);
     let num = pow_mod(self.num.clone(), exponent.clone(), self.prime.clone());
@@ -71,10 +66,13 @@ impl S256FieldElement {
     };
   }
 }
-//this needs tests very badly
+
 fn pow_mod(base: U256, power: U256, modulo: U256) -> U256 {
-  //Our inputs and outputs should never be greater than the max U256
-  //But in the intermediary stpes, we must convert everything to to 512 to prevent overflow
+  // Our inputs and outputs should never be greater than the max U256
+  // But in the intermediary stpes, we must convert everything to to 512 to prevent overflow
+  // This alone makes basiclally this whole project significantly slower
+  // But there's no other way to do it that's no_std compatible
+  // ...short of implementing my own no_std bigint, and I have better things to do
   let modulo = U512::from(modulo);
   let mut power = U512::from(power);
   let mut result = U512::one();
@@ -96,8 +94,6 @@ impl From<u8> for S256FieldElement {
   }
 }
 
-
-
 impl fmt::Display for S256FieldElement {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     let mut num_bytes = vec![0; 32];
@@ -113,25 +109,22 @@ impl fmt::Display for S256FieldElement {
   }
 }
 
-//Operator overrides for S256FieldElement (+, -, *, /)
-//Using a convenient macro from https://docs.rs/impl_ops/0.1.1/impl_ops/
+//Operator overrides for S256FieldElement
 
 impl_op_ex!(+ |a: &S256FieldElement, b: &S256FieldElement| -> S256FieldElement {
-      //Convert a.num and b.num from U256 to U512 to prevent overflow when adding
-      let a_num = U512::from(a.num);
-      let b_num = U512::from(b.num);
-      let prime = U512::from(a.prime);
-      S256FieldElement {
-      //Convert the new num back to a U256;
-      //a SECP256FieldElement num should never ever overflow
-      num: U256::from((a_num + b_num) % prime),
-      prime: P.clone(),
-    }
-  });
+    //Convert a.num and b.num from U256 to U512 to prevent overflow when adding
+    let a_num = U512::from(a.num);
+    let b_num = U512::from(b.num);
+    let prime = U512::from(a.prime);
+    S256FieldElement {
+    num: U256::from((a_num + b_num) % prime),
+    prime: P.clone(),
+  }
+});
 
 impl_op_ex!(
   -|a: &S256FieldElement, b: &S256FieldElement| -> S256FieldElement {
-    let mut result;
+    let result;
     //since we are using ungined ints, we don't want to go negative here
     if a.num < b.num {
       result = a.prime.clone() - (b.num.clone() - a.num.clone());
@@ -158,8 +151,6 @@ impl_op_ex!(
   }
 );
 
-//Detailed explanation of finite-field division here:
-//https://github.com/jimmysong/programmingbitcoin/blob/master/ch01.asciidoc
 impl_op_ex!(
   / |a: &S256FieldElement, b: &S256FieldElement| -> S256FieldElement {
   let a_num = U512::from(a.num);
@@ -176,8 +167,8 @@ impl_op_ex!(
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct S256Point {
-  x: Option<S256FieldElement>,
-  y: Option<S256FieldElement>,
+  pub x: Option<S256FieldElement>,
+  pub y: Option<S256FieldElement>,
 }
 
 //A point on the SECP256K1 curve
@@ -215,13 +206,16 @@ impl S256Point {
     S256Point::new(Some(x), Some(y))
   }
 
-
   //The math behind ECC is too complicated to fully explain in comments
   //See https://github.com/jimmysong/programmingbitcoin/blob/master/ch03.asciidoc
-  pub fn verify_signatture(&self, z: &U256, signature: &Signature) -> bool {
+  pub fn verify_signature(&self, z: &U256, signature: &Signature) -> bool {
     let z = U512::from(z);
     let r = U512::from(signature.r);
-    let s_inverse = U512::from(pow_mod(signature.s.clone(), N.clone() - U256::from(2), N.clone()));
+    let s_inverse = U512::from(pow_mod(
+      signature.s.clone(),
+      N.clone() - U256::from(2),
+      N.clone(),
+    ));
     let u = z.clone() * s_inverse.clone() % U512::from(N.clone());
     let v = r * s_inverse % U512::from(N.clone());
     let total = G.clone() * U256::from(u) + self * U256::from(v);
@@ -265,7 +259,7 @@ impl S256Point {
     }
   }
 
-  fn hash_160(&self, compressed: bool) -> Vec<u8> {
+  pub fn hash_160(&self, compressed: bool) -> Vec<u8> {
     return hash_160(self.sec(compressed));
   }
 
@@ -294,33 +288,27 @@ impl fmt::Display for S256Point {
         let mut y_bytes = vec![0; 32];
         x.num.to_big_endian(&mut x_bytes);
         y.num.to_big_endian(&mut x_bytes);
-        write!(
-        f,
-        "x={}, y={}",
-        hex::encode(x_bytes),
-        hex::encode(y_bytes)
-      )
-      },
+        write!(f, "x={}, y={}", hex::encode(x_bytes), hex::encode(y_bytes))
+      }
       (None, Some(y)) => {
         let mut y_bytes = vec![0; 32];
         y.num.to_big_endian(&mut y_bytes);
         panic!(
-        "(None, {}) is not on the SECP256K1 curve",
-        hex::encode(y_bytes))
-      },
+          "(None, {}) is not on the SECP256K1 curve",
+          hex::encode(y_bytes)
+        )
+      }
       (Some(x), None) => {
         let mut x_bytes = vec![0; 32];
         x.num.to_big_endian(&mut x_bytes);
         panic!(
-        "({}, None) is not on the SECP256K1 curve",
-        hex::encode(x_bytes))
-      },
+          "({}, None) is not on the SECP256K1 curve",
+          hex::encode(x_bytes)
+        )
+      }
     }
   }
 }
-
-//Operator overrides for S256Point (+, -, *, /)
-//Using a convenient macro from https://docs.rs/impl_ops/0.1.1/impl_ops/
 
 impl_op_ex!(
   +|a: &S256Point,  b: &S256Point| -> S256Point {
@@ -386,7 +374,7 @@ impl_op_ex!(*|a: &S256Point, b: &U256| -> S256Point {
 
 #[derive(Debug)]
 pub struct Signature {
-  r: U256, //how many bytes do these akshully need? Might be too much. I'll check
+  r: U256,
   s: U256,
 }
 
@@ -400,7 +388,7 @@ impl fmt::Display for Signature {
       f,
       "num: {}, prime: {}",
       hex::encode(r_bytes),
-     hex::encode(s_bytes)
+      hex::encode(s_bytes)
     )
   }
 }
@@ -435,8 +423,9 @@ impl Signature {
   }
 }
 
+#[derive(Debug, Clone)]
 pub struct PrivateKey {
-  secret: U256,
+  pub secret: U256,
   pub point: S256Point,
 }
 
@@ -446,9 +435,12 @@ impl PrivateKey {
     PrivateKey { secret, point }
   }
 
-  //make everything a field element to avoid overflow? lel
-  pub fn sign(&self, z: &U256) -> Signature {
+  pub fn from_bytes(bytes: &[u8]) -> Self {
+    let secret = U256::from_big_endian(bytes);
+    PrivateKey::new(secret)
+  }
 
+  pub fn sign(&self, z: &U256) -> Signature {
     let k = self.deterministic_k(z);
 
     //To avoid overflow
@@ -458,14 +450,19 @@ impl PrivateKey {
     let n_u512 = U512::from(N.clone());
 
     let k_inverse = U512::from(pow_mod(k.clone(), N.clone() - U256::from(2), N.clone()));
-    let mut s = (z.clone() + (r.clone() * secret  % n_u512.clone()) % n_u512.clone()) * k_inverse % n_u512.clone();
+    let mut s = (z.clone() + (r.clone() * secret % n_u512.clone()) % n_u512.clone()) * k_inverse
+      % n_u512.clone();
     if s > n_u512.clone() / U512::from(2) {
       s = n_u512.clone() - s;
     }
 
-    Signature { r: U256::from(r), s: U256::from(s) }
+    Signature {
+      r: U256::from(r),
+      s: U256::from(s),
+    }
   }
 
+  // Wallet import format serialization
   pub fn wif(&self, compressed: bool, testnet: bool) -> String {
     let mut secret_bytes = vec![0; 32];
     self.secret.to_big_endian(&mut secret_bytes);
@@ -484,7 +481,7 @@ impl PrivateKey {
     encode_base58_checksum(unencoded)
   }
 
-  //looks a lot nicer in Python
+  //looks vastly nicer in Python
   fn deterministic_k(&self, z: &U256) -> U256 {
     let mut k: [u8; 32] = [0; 32];
     let mut v: [u8; 32] = [1; 32];
@@ -496,7 +493,6 @@ impl PrivateKey {
     z.to_big_endian(&mut z_bytes);
     let mut secret_bytes = vec![0; 32];
     self.secret.to_big_endian(&mut secret_bytes);
-    //let secret_bytes = fill_to_32_bytes(self.secret.to_bytes_be().1);
 
     let k_message = construct_long_hmac_message(vec![&v, &[0u8], &secret_bytes, &z_bytes]);
     k = get_hmac_result(&k_message, &k);
@@ -671,7 +667,10 @@ fn test_multiply_point_by_scalar() {
     &"8f68b9d2f63b5f339239c1ad981f162ee88c5678723ea3351b7b444c9ec4c0da",
     &"662a9f2dba063986de1d90c2b6be215dbbea2cfe95510bfdf23cbf79501fff82",
   );
-  assert_eq!(&generator_point * U256::from(2).pow(U256::from(128)), result);
+  assert_eq!(
+    &generator_point * U256::from(2).pow(U256::from(128)),
+    result
+  );
 
   //G * (2^240 + 2^31)
   let result = S256Point::from_hex(
@@ -679,7 +678,6 @@ fn test_multiply_point_by_scalar() {
     &"10b49c67fa9365ad7b90dab070be339a1daf9052373ec30ffae4f72d5e66d053",
   );
   assert_eq!(
-    //generator_point * (pow(U256::from(2), 240) + (pow(U256::from(2), 31))),
     generator_point * (U256::from(2).pow(U256::from(240)) + U256::from(2).pow(U256::from(31))),
     result
   );
@@ -694,7 +692,8 @@ fn test_deterministic_k() {
   let z: U256 = U256::from_big_endian(&z);
   let k = my_privkey.deterministic_k(&z);
 
-  let expected_result = U256_from_hex_str(&"f24af0377e1b27fbebae63b3bec9b249b5bb0b0ba975896dbf35d79b189d19d3");
+  let expected_result =
+    U256_from_hex_str(&"f24af0377e1b27fbebae63b3bec9b249b5bb0b0ba975896dbf35d79b189d19d3");
   assert_eq!(k, expected_result);
 }
 
@@ -707,7 +706,7 @@ fn test_verify_signature() {
   let z = U256_from_hex_str(&"ec208baa0fc1c19f708a9ca96fdeff3ac3f230bb4a7ba4aede4942ad003c0f60");
   let r = U256_from_hex_str(&"ac8d1c87e51d0d441be8b3dd5b05c8795b48875dffe00b7ffcfac23010d3a395");
   let s = U256_from_hex_str(&"068342ceff8935ededd102dd876ffd6ba72d6a427a3edb13d26eb0781cb423c4");
-  assert!(point.verify_signatture(&z, &Signature { r, s }) == true)
+  assert!(point.verify_signature(&z, &Signature { r, s }) == true)
 }
 
 #[test]
@@ -715,7 +714,7 @@ fn test_sign() {
   let private_key = PrivateKey::new(U256::from(1234567890));
   let z = U256::from(987654321);
   let signature = private_key.sign(&z);
-  assert!(private_key.point.verify_signatture(&z, &signature));
+  assert!(private_key.point.verify_signature(&z, &signature));
 }
 
 #[test]
@@ -790,32 +789,15 @@ fn test_address() {
 
 #[test]
 fn test_wif() {
-  //secret: 2^256 - 2^199
-  //let pk = PrivateKey::new(pow(U256::from(2), 256) - pow(U256::from(2), 199));
-  // let pk = PrivateKey::new(U256::from(2).pow(U256::from(256)) - U256::from(2).pow(U256::from(199)));
-  // let expected = String::from("L5oLkpV3aqBJ4BgssVAsax1iRa77G5CVYnv9adQ6Z87te7TyUdSC");
-  // assert_eq!(pk.wif(true, false), expected);
-
-  //secret: 2^256 - 2^201
-  //let pk = PrivateKey::new(pow(U256::from(2), 256) - pow(U256::from(2), 201));
-  // let pk = PrivateKey::new(U256::from(2).pow(U256::from(256)) - U256::from(2).pow(U256::from(201)));
-  // let expected = "93XfLeifX7Jx7n7ELGMAf1SUR6f9kgQs8Xke8WStMwUtrDucMzn";
-  // assert_eq!(pk.wif(false, true), expected);
-
-  let pk = PrivateKey::new(
-    U256_from_hex_str(&"0dba685b4511dbd3d368e5c4358a1277de9486447af7b3604a69b8d9d8b7889d")
-  );
+  let pk = PrivateKey::new(U256_from_hex_str(
+    &"0dba685b4511dbd3d368e5c4358a1277de9486447af7b3604a69b8d9d8b7889d",
+  ));
   let expected = "5HvLFPDVgFZRK9cd4C5jcWki5Skz6fmKqi1GQJf5ZoMofid2Dty";
   assert_eq!(pk.wif(false, false), expected);
 
-  let pk = PrivateKey::new(
-    U256_from_hex_str(&"1cca23de92fd1862fb5b76e5f4f50eb082165e5191e116c18ed1a6b24be6a53f")
-  );
+  let pk = PrivateKey::new(U256_from_hex_str(
+    &"1cca23de92fd1862fb5b76e5f4f50eb082165e5191e116c18ed1a6b24be6a53f",
+  ));
   let expected = "cNYfWuhDpbNM1JWc3c6JTrtrFVxU4AGhUKgw5f93NP2QaBqmxKkg";
   assert_eq!(pk.wif(true, true), expected);
 }
-
-//Things that would make this code better:
-//1: replace BigInts with BigUInts?
-//2. Add tests for S256FieldElement
-//3. See if I can avoid invoking ".code" in get_hmac_result (apparently insecure?)

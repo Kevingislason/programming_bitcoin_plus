@@ -1,18 +1,13 @@
-//Adapted from Jimmy Song's Programming Bitcoin library:
-//https://github.com/jimmysong/programmingbitcoin/
-use crate::ecc::PrivateKey;
-use crate::script::{Script, ScriptElement};
-use crate::helpers::{encode_varint, read_varint, hash_256, SIGHASH_ALL};
 use crate::cursor::Cursor;
+use crate::ecc::PrivateKey;
 use crate::genio::{Read, Write};
+use crate::helpers::{encode_varint, hash_256, read_varint, SIGHASH_ALL};
+use crate::script::{Script, ScriptElement};
 use crate::serialization::Serialization;
-use core::convert::TryFrom;
+use bigint::U256;
 use core::fmt;
-use bigint::{U256, U512};
-use hex::decode;
-use num::Zero;
 
-
+//todo: implement tx.fee()
 
 //A Bitcoin transction
 #[derive(PartialEq, Debug, Clone)]
@@ -70,9 +65,7 @@ impl Tx {
 
   pub fn serialize(&self) -> Vec<u8> {
     let mut serialization = Serialization::new();
-    serialization
-      .write_u32_little_endian(self.version)
-      .unwrap();
+    serialization.write_u32_little_endian(self.version).unwrap();
     serialization
       .write(&encode_varint(self.tx_ins.len() as u64))
       .unwrap();
@@ -94,9 +87,7 @@ impl Tx {
 
   fn sig_hash(&self, input_index: usize, redeem_script: Script) -> U256 {
     let mut serialization = Serialization::new();
-    serialization
-      .write_u32_little_endian(self.version)
-      .unwrap();
+    serialization.write_u32_little_endian(self.version).unwrap();
     serialization
       .write(&encode_varint(self.tx_ins.len() as u64))
       .unwrap();
@@ -145,7 +136,6 @@ impl Tx {
   }
 }
 
-//I'm sure this will look very ugly, oh well
 impl fmt::Display for Tx {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(
@@ -215,7 +205,6 @@ impl TxIn {
   }
 }
 
-
 impl fmt::Display for TxIn {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(
@@ -251,9 +240,7 @@ impl TxOut {
 
   pub fn serialize(&self) -> Vec<u8> {
     let mut serialization = Serialization::new();
-    serialization
-      .write_u64_little_endian(self.amount)
-      .unwrap();
+    serialization.write_u64_little_endian(self.amount).unwrap();
     serialization
       .write(&self.script_pubkey.serialize())
       .unwrap();
@@ -319,8 +306,6 @@ pub fn test_parse_locktime() {
   let tx = Tx::parse(serialized_tx, false);
   assert_eq!(tx.locktime, 410393);
 }
-
-//todo: implement fees
 
 // #[test]
 // pub fn test_fee() {

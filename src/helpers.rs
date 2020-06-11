@@ -1,21 +1,39 @@
-//Adapted from Jimmy Song's Programming Bitcoin library:
-//https://github.com/jimmysong/programmingbitcoin/
-
-use num::bigint::BigInt;
-use num::bigint::Sign::Plus;
-use num::ToPrimitive;
-use num_traits::identities::{One, Zero};
-use ripemd160::Ripemd160;
-use sha2::{Digest, Sha256};
-use bigint::U256;
-use core::convert::From;
 use crate::cursor::Cursor;
 use crate::genio::Read;
 use crate::serialization::Serialization;
+use bigint::{U256, U512};
+use core::convert::{From, TryInto};
+use hmac::{Hmac, Mac};
+use ripemd160::Ripemd160;
+use sha2::{Digest, Sha256, Sha512};
 
 pub const SIGHASH_ALL: u8 = 1;
 pub const SIGHASH_NONE: u8 = 2;
 pub const SIGHASH_SINGLE: u8 = 3;
+
+#[derive(Debug, Clone)]
+struct TryFromSliceError(());
+
+//todo: use a different library to avoid this code gore
+
+fn slice_to_array_64<T>(slice: &[T]) -> Result<&[T; 64], TryFromSliceError> {
+  if slice.len() == 64 {
+    let ptr = slice.as_ptr() as *const [T; 64];
+    unsafe { Ok(&*ptr) }
+  } else {
+    Err(TryFromSliceError(()))
+  }
+}
+
+type HmacSha512 = Hmac<Sha512>;
+
+pub fn hmac_512(key: &[u8], message: &[u8]) -> [u8; 64] {
+  let mut mac = HmacSha512::new_varkey(key).expect("HMAC can take key of any size");
+  mac.input(message);
+  let result = mac.result();
+  let code = result.code();
+  slice_to_array_64(code.as_slice()).unwrap().clone()
+}
 
 pub fn hash_160(bytes: Vec<u8>) -> Vec<u8> {
   //Hash our bytes with sha256, then ripemd160
@@ -36,7 +54,8 @@ pub fn hash_256(bytes: Vec<u8>) -> Vec<u8> {
   sha256.result().to_vec()
 }
 
-pub fn encode_base58(bytes: Vec<u8>) -> String {
+//todo; constrain input; breaks if U256
+fn encode_base58(bytes: Vec<u8>) -> String {
   let base58_alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   let mut count = 0;
   for c in bytes.clone() {
@@ -46,15 +65,15 @@ pub fn encode_base58(bytes: Vec<u8>) -> String {
       break;
     }
   }
-  let mut num = U256::from_big_endian(&bytes);
+  let mut num = U512::from_big_endian(&bytes);
   let mut prefix = String::from("");
   for _ in 0..count {
     prefix += "1";
   }
   let mut result = String::from("");
-  while &num > &U256::from(0) {
-    let modulo: usize = (num.clone() % U256::from(58)).as_u32() as usize;
-    num = num.clone() / U256::from(58);
+  while &num > &U512::from(0) {
+    let modulo: usize = (num.clone() % U512::from(58)).as_u32() as usize;
+    num = num.clone() / U512::from(58);
     let character = String::from(&base58_alphabet[modulo..modulo + 1]);
     result = character + &result;
   }
@@ -68,7 +87,29 @@ pub fn encode_base58_checksum(bytes: Vec<u8>) -> String {
   encode_base58(unencoded)
 }
 
-//todo: refactor, I think this code is bad
+pub fn decode_base58_address(s: String) -> Vec<u8> {
+  assert_eq!(s.len(), 34);
+  const BASE58_ALPHABET: &str = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  let mut num = U256::zero();
+  for c in s.chars() {
+    num = num * U256::from(58);
+    let index: u8 = BASE58_ALPHABET.find(c).unwrap() as u8;
+    num = num + U256::from(index);
+  }
+  let mut buffer = [0u8; 32];
+  num.to_big_endian(&mut buffer);
+  // todo: get rid of this travesty
+  let address_bytes = &buffer[7..];
+
+  let checksum = address_bytes[21..].to_vec();
+  let first_21_chars_of_address_bytes = address_bytes[..21].to_vec();
+  let hash = hash_256(first_21_chars_of_address_bytes.clone());
+  if hash[0..4].to_vec() != checksum {
+    panic!("bad address: {:?} {:?}", checksum, hash[..4].to_vec());
+  }
+  return address_bytes[1..21].to_vec();
+}
+
 pub fn decode_base58(s: String) -> Vec<u8> {
   let base58_alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   let mut num = U256::zero();
@@ -80,13 +121,6 @@ pub fn decode_base58(s: String) -> Vec<u8> {
   let mut combined = [0u8; 32];
   num.to_big_endian(&mut combined);
   let mut combined = &combined[7..32];
-  //pad to 25 bytes
-  // if combined.len() < 25 {
-  //   let padding_len = 25 - combined.len();
-  //   let mut padded_combined: Vec<u8> = vec![0; padding_len];
-  //   padded_combined.append(&mut combined);
-  //   combined = padded_combined;
-  // }
 
   let checksum = combined[21..25].to_vec();
   let first_21_chars_of_combined = combined[0..21].to_vec();
@@ -114,21 +148,26 @@ pub fn encode_varint(i: u64) -> Vec<u8> {
     vec![i as u8]
   } else if i < 0x10000 {
     serialization.write_u16_little_endian(i as u16).unwrap();
-    //just concatenating here lol rust
-    vec![0xfd].into_iter().chain(serialization.contents.into_iter()).collect()
+    vec![0xfd]
+      .into_iter()
+      .chain(serialization.contents.into_iter())
+      .collect()
   } else if i < 0x100000000 {
     serialization.write_u32_little_endian(i as u32).unwrap();
-    vec![0xfe].into_iter().chain(serialization.contents.into_iter()).collect()
+    vec![0xfe]
+      .into_iter()
+      .chain(serialization.contents.into_iter())
+      .collect()
   } else {
     serialization.write_u64_little_endian(i as u64).unwrap();
-    vec![0xff].into_iter().chain(serialization.contents.into_iter()).collect()
+    vec![0xff]
+      .into_iter()
+      .chain(serialization.contents.into_iter())
+      .collect()
   }
 }
 
 pub fn U256_from_hex_str(hex_str: &str) -> U256 {
-  //As currently implemented, this function will throw a tantrum if the str isn't 64 characters -> 256 bytes
-  //This is because of the stupid way U256::from_big_endian is implemented--it requires exactly 32 u8s
-  //I can probably fix this on my own, but it doesn't really matter, since I think I only use this dumb function for tests
   assert_eq!(hex_str.len(), 64);
   let big_endian_bytes = hex::decode(hex_str).unwrap();
   U256::from_big_endian(&big_endian_bytes)
@@ -141,12 +180,14 @@ pub fn test_U256_from_hex_str() {
   assert_eq!(max_U256, U256_from_hex_str(U256_max_str));
 
   let one = U256::one();
-  assert_eq!(one, U256_from_hex_str("0000000000000000000000000000000000000000000000000000000000000001"));
+  assert_eq!(
+    one,
+    U256_from_hex_str("0000000000000000000000000000000000000000000000000000000000000001")
+  );
 }
 
 #[test]
 pub fn test_enocde_base58() {
-  println!("{}", 100u8 / 58u8);
   let bytes: Vec<u8> = vec![1, 2, 200, 255, 122];
   assert_eq!(encode_base58(bytes), "7cfKTo")
 }
@@ -193,4 +234,3 @@ pub fn test_varint() {
     read_varint(&mut Cursor::new(bigger_than_a_varint))
   );
 }
-
